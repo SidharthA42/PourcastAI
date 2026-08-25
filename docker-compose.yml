@@ -1,0 +1,43 @@
+# Self-hosted n8n for PourCastAI's automation layer.
+#
+# Why Docker + local n8n (not n8n cloud): keeps the "fully local" security
+# property intact - no project data or API keys leave the machine.
+#
+# Run:
+#   docker compose build   # first time only, or after editing requirements.txt
+#   docker compose up -d
+#   open http://localhost:5678  (first run: create a local admin account)
+#
+# The whole project folder is mounted into the container at /project, so
+# n8n's "Execute Command" nodes can run `python3 /project/build_database.py`
+# etc. directly against the same files and DB your Streamlit app uses.
+#
+# Python + this project's requirements.txt are baked into the image at BUILD
+# time via n8n/Dockerfile (see that file for why - short version: installing
+# them at container *startup* fails because the base image runs as a
+# non-root user, which is what caused the earlier crash-loop).
+services:
+  n8n:
+    build:
+      context: .
+      dockerfile: n8n/Dockerfile
+    container_name: pourcastai-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - GENERIC_TIMEZONE=America/Chicago
+      - TZ=America/Chicago
+      - N8N_SECURE_COOKIE=false
+      # n8n 2.0 disables Execute Command / LocalFileTrigger by default (they
+      # can run arbitrary shell commands, a real risk on a shared/cloud
+      # instance). This is a single-user local instance, so it's safe to
+      # re-enable them - without this, the imported workflows fail with
+      # "Unrecognized node type: n8n-nodes-base.executeCommand".
+      - NODES_EXCLUDE=[]
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./:/project              # project code + shared pourcast.db
+
+volumes:
+  n8n_data:

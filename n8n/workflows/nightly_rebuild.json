@@ -1,0 +1,62 @@
+{
+  "name": "PourCastAI - Nightly DB Rebuild",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 2 * * *" }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-0001-4a1a-8a1a-000000000001",
+      "name": "Nightly 2AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "command": "cd /project && python3 build_database.py"
+      },
+      "id": "a1b2c3d4-0002-4a1a-8a1a-000000000002",
+      "name": "Rebuild dims + real sales",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "command": "cd /project && python3 simulate.py"
+      },
+      "id": "a1b2c3d4-0003-4a1a-8a1a-000000000003",
+      "name": "Re-simulate inventory + shipments",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [720, 300]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "a1b2c3d4-0004-4a1a-8a1a-000000000004",
+      "name": "Done",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [960, 300]
+    }
+  ],
+  "connections": {
+    "Nightly 2AM": {
+      "main": [[{ "node": "Rebuild dims + real sales", "type": "main", "index": 0 }]]
+    },
+    "Rebuild dims + real sales": {
+      "main": [[{ "node": "Re-simulate inventory + shipments", "type": "main", "index": 0 }]]
+    },
+    "Re-simulate inventory + shipments": {
+      "main": [[{ "node": "Done", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "meta": { "instanceId": "pourcastai-local" }
+}

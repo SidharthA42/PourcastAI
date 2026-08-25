@@ -1,0 +1,23 @@
+# secrets
+.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# data — never commit (raw CSV + the SQLite DB)
+data/
+*.db
+*.sqlite3
+
+# large/derived exports (keep the small reference CSVs)
+databricks/exports/fact_sales.csv
+databricks/exports/fact_inventory_snapshot.csv
+
+# os / editor noise
+.DS_Store
+.vscode/
+.idea/
+*.log

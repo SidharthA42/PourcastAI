@@ -1,0 +1,36 @@
+{
+  "name": "PourCastAI - API Cache Refresh",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "minutes", "minutesInterval": 30 }
+          ]
+        }
+      },
+      "id": "b1b2c3d4-0001-4a1a-8a1a-000000000001",
+      "name": "Every 30 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "command": "cd /project && python3 n8n/cache_refresh.py"
+      },
+      "id": "b1b2c3d4-0002-4a1a-8a1a-000000000002",
+      "name": "Refresh diesel price cache",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [480, 300]
+    }
+  ],
+  "connections": {
+    "Every 30 min": {
+      "main": [[{ "node": "Refresh diesel price cache", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "meta": { "instanceId": "pourcastai-local" }
+}

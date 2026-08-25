@@ -1,0 +1,10 @@
+vendor_number,vendor_name,lead_time_days,lead_time_std,reliability_score
+55,SAZERAC NORTH AMERICA,3,0.6,0.881
+85,Brown Forman Corp.,10,2.0,0.934
+115,CONSTELLATION BRANDS INC,8,1.6,0.854
+260,DIAGEO AMERICAS,10,2.0,0.878
+297,Laird & Company,4,0.8,0.953
+300,McCormick Distilling Co.,10,2.0,0.909
+380,Phillips Beverage,6,1.2,0.884
+421,SAZERAC COMPANY  INC,10,2.0,0.862
+434,LUXCO INC,3,0.6,0.854

@@ -1,0 +1,26 @@
+item_number,item_description,category,category_name,vendor_number,pack,bottle_volume_ml,state_bottle_cost,state_bottle_retail
+11296,Crown Royal,1012100,Canadian Whiskies,260,12,750,15.59,23.39
+11297,Crown Royal Canadian Whisky,1012100,Canadian Whiskies,260,12,1000,18.89,28.34
+11773,Black Velvet,1012100,Canadian Whiskies,115,48,200,1.56,2.34
+11774,Black Velvet,1012100,Canadian Whiskies,115,24,375,3.07,4.61
+11776,Black Velvet,1012100,Canadian Whiskies,115,12,750,5.23,7.85
+11777,Black Velvet,1012100,Canadian Whiskies,115,12,1000,6.63,9.95
+11788,Black Velvet,1012100,Canadian Whiskies,115,6,1750,10.45,15.68
+26826,Jack Daniels Old #7 Black Lbl,1011400,Tennessee Whiskies,85,12,750,15.57,23.36
+26827,Jack Daniels Old #7 Black Lbl,1011400,Tennessee Whiskies,85,12,1000,18.89,28.34
+35317,Barton Vodka,1031100,American Vodkas,55,12,1000,3.97,5.96
+35916,Five O'clock Vodka,1031100,American Vodkas,297,12,750,3.37,5.06
+35918,Five O'clock Vodka,1031100,American Vodkas,297,6,1750,7.2,10.8
+36306,Hawkeye Vodka,1031100,American Vodkas,434,12,750,3.34,5.01
+36307,Hawkeye Vodka,1031100,American Vodkas,434,12,1000,4.05,6.08
+36308,Hawkeye Vodka,1031100,American Vodkas,434,6,1750,7.17,10.76
+36903,Mccormick Vodka,1031100,American Vodkas,300,48,200,1.13,1.7
+36904,Mccormick Vodka Pet,1031100,American Vodkas,300,24,375,1.8,2.7
+37347,Phillips Vodka,1031100,American Vodkas,380,12,1000,4.29,6.44
+37348,Phillips Vodka,1031100,American Vodkas,380,6,1750,7.6,11.4
+43336,Captain Morgan Original Spiced,1062400,Spiced Rum,260,12,750,9.06,13.59
+43337,Captain Morgan Spiced Rum,1062400,Spiced Rum,260,12,1000,11.75,17.63
+43338,Captain Morgan Spiced Rum,1062400,Spiced Rum,260,6,1750,18.0,27.0
+64866,Fireball Cinnamon Whiskey,1081600,Whiskey Liqueur,421,12,750,9.0,13.5
+64867,Fireball Cinnamon Whiskey,1081600,Whiskey Liqueur,421,12,1000,11.34,17.01
+89387,Juarez Tequila Gold,1022100,Mixto Tequila,434,12,1000,6.92,10.38
