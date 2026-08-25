@@ -1,193 +1,266 @@
 # PourCastAI
 
-A local, multi-agent stocking & delivery-risk assistant for Iowa liquor
-distribution. Two agents share one database and answer natural-language
-questions about stockout risk and inbound-shipment risk.
+**A multi-agent AI decision-support system for Iowa liquor supply-chain management.**
 
-## Folder structure
+PourCastAI reads real Iowa liquor sales, simulates the inventory and shipments those
+sales imply, scores every inbound shipment for delivery risk using live weather /
+routing / fuel data, and answers plain-English questions about it — with a local LLM
+writing the answers. It runs entirely on your machine, but is wired through a real
+**CRM (HubSpot)** and a real **lakehouse (Databricks + Delta Lake)** the way an actual
+distributor's stack would be.
 
-```
-pourcast-ai/
-├── data/
-│   ├── raw/
-│   │   └── Iowa_Liquor_Sales.csv     <- the 3.4 GB Kaggle file (you add this)
-│   └── pourcast.db                   <- shared SQLite DB (generated)
-│
-├── schema.sql            # STEP 1  the shared schema (the contract)
-├── build_database.py     # STEP 2-4 DuckDB scans CSV -> dims + real fact_sales
-├── simulate.py           # STEP 5  depletion/reorder -> inventory + shipments
-│
-├── db.py                 # one place that opens the shared DB
-├── inventory_agent.py    # Vishnu: reads gold_inventory_health -> low-stock flags
-├── risk_tools.py         # live APIs (NWS, OSRM, EIA) with safe fallbacks + cache read
-├── risk_agent.py         # Sid: scores flagged routes 0-100, re-estimates ETA
-├── orchestrator.py       # pipeline (cacheable) + local Ollama (with fallback)
-├── app.py                # Sai Charan: Streamlit UI - Chat tab + Dashboard tab
-│
-├── n8n/
-│   ├── cache_refresh.py         # writes live diesel price into ext_cache
-│   └── workflows/
-│       ├── nightly_rebuild.json      # import into n8n: rebuild DB @ 2AM
-│       └── api_cache_refresh.json    # import into n8n: diesel price every 30 min
-├── docker-compose.yml    # self-hosted n8n, project folder mounted in
-│
-├── requirements.txt
-├── .env.example          # copy to .env, add EIA key
-└── README.md
-```
+> Iowa is a *control state*: the state warehouse in **Ankeny** ships spirits to retail
+> stores across all 99 counties. Two things cost money there — **stockouts** (a store
+> runs dry) and **late deliveries** (the replenishment truck is delayed). PourCastAI
+> watches both.
 
-## Do NOT commit the raw CSV
-It is 3.4 GB. Add `data/` to `.gitignore`. Keep the full file locally as your
-real source; `build_database.py` only pulls a small slice into `pourcast.db`.
-
-## The 3.4 GB question
-Keep the whole file — but you never load it all. DuckDB reads the CSV directly
-with SQL and materialises only the busiest 25 items × 20 stores over the last
-12 months into the shared DB. Change `TOP_N_ITEMS` / `TOP_M_STORES` /
-`MONTHS_BACK` at the top of `build_database.py` to resize the slice.
-
-## Run order
-
-```bash
-pip install -r requirements.txt
-
-# 1. build the shared database (one-time / whenever data changes)
-python build_database.py
-python simulate.py
-
-# 2. optional sanity checks
-python inventory_agent.py
-python risk_agent.py
-
-# 3. the UI
-streamlit run app.py
-```
-
-For the LLM: install Ollama, then `ollama pull qwen2.5:7b-instruct`. If Ollama
-isn't running, the orchestrator falls back to a templated answer so the demo
-never breaks.
-
-## Real vs simulated (state this in the report)
-- REAL: sales, items, stores, vendors, store coordinates — all from the Iowa
-  dataset. Live weather/routing/diesel when the network allows.
-- SIMULATED (but derived from real sales): inventory levels, reorder points,
-  and inbound shipments. Every shipment exists because a real sale drained the
-  shelf; orders ship from the real Ankeny state warehouse to real store
-  coordinates. Vendor lead-times/reliability and the carrier list are simulated
-  and labelled as such.
-
-## Reducing workload — automation tools
-Your architecture is already using three "do the heavy lifting for you" tools;
-here is where each fits, cheapest-effort first.
-
-**DuckDB** (already wired in) — turns a slow multi-pass pandas scan of 3.4 GB
-into one fast SQL query. This is the biggest single workload win in the data
-layer.
-
-**LangGraph** — instead of hand-wiring the agents, express the pipeline as a
-graph: `inventory_node -> risk_node -> synthesis_node`. Each of your existing
-functions (`inventory_agent.get_low_stock`, `risk_agent.run`) becomes a node.
-It removes the glue code and gives you a clean diagram for the report.
-
-**n8n** (what your professor asked about) — a self-hosted, open-source workflow
-automation tool. Runs locally via Docker, so it fits the "fully local /
-data stays in-house" security property (unlike a cloud scheduler). Use it as
-the *outer* automation layer so the app itself does less work:
-
-- A **Schedule (cron) trigger** runs the data refresh on its own — e.g. nightly
-  `Execute Command` nodes that run `build_database.py` then `simulate.py`.
-- **HTTP Request** nodes pull NWS alerts and EIA diesel on a schedule and cache
-  them into a small table, so the agents read fresh-but-cached values instead
-  of calling the APIs on every user query. That cuts per-question latency and
-  fixes the "stale data" labelling problem — the cache has a known timestamp.
-- n8n has native **Ollama** and MCP nodes, so you can even run the whole
-  pipeline as a webhook the Streamlit UI calls.
-
-Net effect: the batch build, the API polling, and the scheduling all move out
-of your Python app and into n8n, which is exactly the workload reduction the
-brief is after. Databricks Workflows (in your original doc) does the same job
-but is cloud-oriented; n8n is the lighter, local-friendly choice for a demo.
-
-### Running n8n
-
-n8n's current Docker image ships without `apk`/`apt-get` at all (a known,
-currently-open packaging issue on their side — see
-[n8n-io/n8n#23603](https://github.com/n8n-io/n8n/issues/23603)), which is
-why installing Python into it kept failing no matter how we tried. Two
-options, in order of how much hassle they are:
-
-**Option A — run n8n natively (recommended, no Docker at all)**
-
-```bash
-$env:NODES_EXCLUDE = "[]"   # re-enables Execute Command - see note below
-npx n8n
-# open http://localhost:5678, create a local admin account (first run only)
-```
-
-Requires Node.js (if `npx` isn't recognized, install Node.js LTS first).
-This runs n8n as a normal process on your machine — no container, no base
-image to fight with.
-
-> **Why the `NODES_EXCLUDE` line:** n8n 2.0 disables the Execute Command
-> (and LocalFileTrigger) node by default, since on a shared/cloud n8n
-> instance it lets anyone run arbitrary shell commands. That risk doesn't
-> apply to a single-user local instance, so it's safe to re-enable here —
-> without it, importing these workflows fails with `Unrecognized node type:
-> n8n-nodes-base.executeCommand`. Set it in every new PowerShell session
-> before running `npx n8n`, or add it as a permanent user environment
-> variable via `setx NODES_EXCLUDE "[]"` (System Properties → Environment
-> Variables also works) so you don't have to retype it each time.
-
-Import both workflows (**Workflows → Import from File**, load each `.json`
-from `n8n/workflows/`), but before activating them, open each **Execute
-Command** node and change the command to point at your venv's Python
-directly, e.g.:
-
-```
-D:\pourcast-ai\.venv\Scripts\python.exe D:\pourcast-ai\build_database.py
-```
-
-(swap in your actual project path). That's it — since n8n is now a normal
-Windows process, its Execute Command nodes run in a normal Windows shell
-with access to your exact venv.
-
-**Option B — Docker (more setup, optional)**
-
-```bash
-docker compose build
-docker compose up -d
-```
-
-`n8n/Dockerfile` now builds on the `-debian` image tag (which still has
-`apt-get`, unlike the default distroless-ish `latest` tag) and installs
-Python + `requirements.txt` at build time. If `docker ps` still shows
-`Restarting`, run `docker compose build` again and read the build log —
-with Option B, image-level package installs fail loudly at build time
-instead of crash-looping at runtime, so the log will say exactly what broke.
-The imported workflows' Execute Command nodes can stay as `python3 ...` for
-this option, since Python lives inside the container.
+📖 **Full documentation:** [`docs/PourCastAI_Manual.md`](docs/PourCastAI_Manual.md) —
+a complete, read-it-start-to-finish manual (objectives, agents, schema, HubSpot,
+Databricks, setup, troubleshooting). This README is the quickstart.
 
 ---
 
-Once running (either option), import both workflows:
+## What it does
 
-- **nightly_rebuild.json** — cron `0 2 * * *`, runs `build_database.py` then
-  `simulate.py` against the shared `pourcast.db` so the demo data refreshes
-  itself overnight with no manual step.
-- **api_cache_refresh.json** — runs every 30 minutes, calls
-  `n8n/cache_refresh.py`, which writes the live EIA diesel price into a new
-  `ext_cache` table. `risk_tools.get_diesel_price()` now checks that table
-  first (≤90 min old = fresh) before ever calling the EIA API directly — so a
-  chat question never blocks on that API mid-conversation, only n8n's
-  background schedule does.
+- **Inventory Agent** — flags store-items running low, using a statistical (s, S)
+  reorder-point model (demand + lead-time variability, 95% service level).
+- **Risk & Logistics Agent** — scores each inbound shipment 0–100 from **7 live
+  factors**: weather alerts, road hazards, precip forecast, route distance, diesel
+  price, carrier reliability, and rurality.
+- **Orchestrator + local LLM** — runs Inventory → Risk → a local **Ollama** model
+  (`qwen2.5:7b-instruct`) that turns the numbers into a readable answer. Falls back to
+  a templated answer if the model is offline, so the demo never breaks.
+- **Streamlit dashboard + chat** — KPI cards, risk/status donuts, recent shipments,
+  top risk factors, and a docked AI assistant.
 
-Click each workflow's **Active** toggle to turn on the schedule. Both nodes
-run `python3` inside the n8n container against `/project`, which is this
-folder mounted read/write by `docker-compose.yml` — same `pourcast.db` your
-Streamlit app reads, so no sync step is needed.
+The two agents share **one SQLite database** keyed on `store_number` / `item_number`,
+so they can never disagree about what a store or item is.
 
-To extend this further (documented as a next step, not yet built): add an
-`HTTP Request` node before `cache_refresh.py` for NWS state-wide alerts, or a
-`Slack`/`Email` node after the nightly rebuild to notify the team if a run
-fails (n8n's `Execute Command` node exposes a non-zero exit code you can
-branch on with an `IF` node).
+---
+
+## Quickstart (local-only)
+
+```bash
+# 1. virtual environment
+python -m venv .venv
+# Windows:  .\.venv\Scripts\Activate.ps1
+# macOS/Linux:  source .venv/bin/activate
+
+# 2. dependencies
+pip install -r requirements.txt
+
+# 3. env file (copy the template, fill in keys as needed — all optional locally)
+cp .env.example .env
+
+# 4. build the data (place the Kaggle CSV at data/raw/Iowa_Liquor_Sales.csv first)
+python build_database.py     # DuckDB scans the CSV -> dims + real fact_sales
+python simulate.py           # deplete by real sales -> inventory + shipments
+
+# 5. the local LLM
+ollama pull qwen2.5:7b-instruct   # Ollama must be running (localhost:11434)
+
+# 6. run it
+streamlit run app.py         # opens http://localhost:8501
+```
+
+First chat answer after startup takes ~1 min while the model loads into RAM — that's
+normal. On a slow CPU, set `OLLAMA_MODEL=qwen2.5:3b-instruct` in `.env`.
+
+---
+
+## The two run paths
+
+**Path A — local-only** (the quickstart above). Everything runs off `data/pourcast.db`.
+Risk is scored live at query time.
+
+**Path B — full enterprise** (HubSpot + Databricks). Adds the CRM and lakehouse layers,
+then syncs the cloud-computed risk scores back to the local app:
+
+```bash
+# HubSpot (CRM)
+python hubspot_check_pipeline.py    # verify token, print pipeline/stage ids
+python hubspot_seed.py              # stores -> Companies, open shipments -> Deals
+
+# export reference data for Databricks (CSVs land in the project root — move them
+# into databricks/exports/ and upload to your Databricks Volume)
+python export_store_coords.py
+python export_static_tables.py
+
+# in Databricks: upload CSVs + ingest HubSpot/live APIs to Bronze, then run
+#   databricks/notebooks/06_silver_layer.py   -> conformed Silver tables
+#   databricks/notebooks/07_gold_layer.py     -> gold_inventory_health,
+#                                                 gold_shipments_open, gold_risk_scores
+
+# pull the Gold tables back into the local app
+pip install databricks-sql-connector
+python databricks_sync.py           # needs DATABRICKS_* keys in .env
+streamlit run app.py                # footer now shows "risk: Databricks Gold"
+```
+
+**How the app picks its risk source (automatic):** if a synced `gold_risk_scores`
+table is present, the app reads those pre-computed scores (`risk_source =
+databricks_gold`); otherwise it scores flagged reorders live (`risk_source =
+live_scoring`). The rail footer shows which one is active.
+
+See the [manual](docs/PourCastAI_Manual.md) (Parts IV–V) for the full HubSpot +
+Databricks walkthrough.
+
+---
+
+## Project structure
+
+Core Python modules and `schema.sql` stay at the **root** (they import each other by
+name and expect to run from here). Only docs, notebooks, exports, and automation are
+foldered.
+
+```
+pourcast-ai/
+├── .env.example            # committed template (real .env is gitignored)
+├── .gitignore
+├── README.md
+├── requirements.txt
+├── docker-compose.yml      # n8n; mounts the project as /project
+├── schema.sql              # the shared DB contract
+│
+├── app.py                  # Streamlit UI (dashboard + chat)
+├── orchestrator.py         # pipeline + LLM + guardrails + risk-source switch
+├── agent_graph.py          # LangGraph reference wiring
+├── inventory_agent.py      # low-stock flags (reorder-point model)
+├── risk_agent.py           # 7-factor risk scoring + read_gold_scores()
+├── risk_tools.py           # live APIs (NWS, OSRM, Open-Meteo, EIA) + fallbacks
+├── db.py                   # opens data/pourcast.db
+├── build_database.py       # DuckDB: Kaggle CSV -> dims + fact_sales
+├── simulate.py             # inventory snapshots + shipments from real sales
+├── hubspot_check_pipeline.py
+├── hubspot_seed.py         # seed Companies + Deals
+├── export_static_tables.py
+├── export_store_coords.py
+├── databricks_sync.py      # pull Gold tables into local SQLite
+├── check_data_sources.py   # PASS/FALLBACK/FAIL for every live API
+├── sensitivity_check.py    # justifies the reorder-model assumptions
+│
+├── data/                   # gitignored
+│   ├── raw/Iowa_Liquor_Sales.csv   # 3.4 GB Kaggle file (you add this)
+│   └── pourcast.db                 # generated
+│
+├── docs/
+│   ├── PourCastAI_Manual.md        # the full manual
+│   └── PROJECT_DOCUMENTATION.md    # older local-only doc (superseded)
+│
+├── databricks/
+│   ├── notebooks/
+│   │   ├── 06_silver_layer.py
+│   │   └── 07_gold_layer.py
+│   └── exports/            # CSVs uploaded to the Databricks Volume
+│
+└── n8n/
+    ├── cache_refresh.py
+    └── workflows/
+        ├── nightly_rebuild.json
+        └── api_cache_refresh.json
+```
+
+---
+
+## The 3.4 GB question
+
+Keep the whole Kaggle file locally, but you never load it all. **DuckDB** reads the CSV
+directly with SQL and materialises only the busiest **25 items × 20 stores over the
+last 12 months** into `pourcast.db`. Resize via `TOP_N_ITEMS` / `TOP_M_STORES` /
+`MONTHS_BACK` at the top of `build_database.py`. **Never commit the CSV or the DB** —
+`data/` is gitignored.
+
+---
+
+## Real vs simulated (state this in the report)
+
+| Real | Simulated (derived from real sales) |
+|---|---|
+| Sales, items, stores (+ GPS), vendors — from the Iowa dataset | Inventory levels, days of cover |
+| County population / rural flag — US Census (build-time) | Reorder points, safety stock |
+| Weather, road hazards, forecast, routing, diesel — live APIs | Inbound shipments (one per reorder) |
+| Ankeny warehouse coordinates | Vendor lead-times & reliability; carrier list (Ruan is real) |
+
+We never invent inventory: each store-item starts with a plausible opening stock, is
+depleted daily by the **real** bottles sold, and orders a replenishment when stock
+crosses the reorder point. **Every simulated shipment exists because a real sale
+drained a shelf.**
+
+> **HubSpot & Databricks are real tools**, but the shipment/inventory data flowing
+> through them is simulated-from-real-sales. The pipeline is a fixed Inventory → Risk →
+> LLM sequence — **not** dynamic LLM routing (the "Router Agent" tile is a focus hint;
+> tool-based routing is a documented next step).
+
+---
+
+## Environment & secrets
+
+Copy `.env.example` → `.env` and fill in what you need. Everything is optional for
+Path A; HubSpot/Databricks keys are needed for Path B.
+
+```bash
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=qwen2.5:7b-instruct     # qwen2.5:3b-instruct on a slow CPU
+EIA_API_KEY=                          # live diesel price (optional)
+CENSUS_API_KEY=                       # county population at build time (optional)
+HUBSPOT_ACCESS_TOKEN=                 # Path B
+DATABRICKS_SERVER_HOSTNAME=           # Path B
+DATABRICKS_HTTP_PATH=                 # Path B
+DATABRICKS_TOKEN=                     # Path B
+```
+
+**Never commit `.env`.** It's gitignored. If it was ever committed, deleting it now
+doesn't remove it from git history — rotate those keys, and scrub history (BFG /
+`git filter-repo`) if the repo is shared. To untrack a currently-tracked `.env`:
+`git rm --cached .env`.
+
+---
+
+## Optional: automation (n8n)
+
+n8n moves the scheduling and API polling out of the app. Run it natively (no Docker):
+
+```powershell
+$env:NODES_EXCLUDE = "[]"   # re-enables Execute Command on a local instance
+npx n8n                     # http://localhost:5678
+```
+
+Import both workflows from `n8n/workflows/` and point their Execute Command nodes at
+your venv's Python:
+
+- **nightly_rebuild** — cron `0 2 * * *`: re-runs `build_database.py` + `simulate.py`.
+- **api_cache_refresh** — every 30 min: caches the live diesel price into `ext_cache`,
+  so chat questions never block on the slow EIA API.
+
+---
+
+## Troubleshooting (quick hits)
+
+| Symptom | Fix |
+|---|---|
+| Risk dashboard all zeros, inventory has data | Run `python databricks_sync.py` (Databricks) or re-run `simulate.py` (local). The app shows a banner explaining which case. |
+| Chatbot answers in Chinese | `qwen2.5` drifts without an English pin — use the updated `orchestrator.py` (English-pinned, `temperature 0.2`); stay on 7B. |
+| Streamlit crashes on Ctrl+C/reload (`'Server' has no attribute 'servers'`) | Streamlit 1.53+/uvicorn teardown bug — `pip install "streamlit==1.50.0"`. |
+| Catalog page errors after a fresh sync | `databricks_sync.py` only pulls the 3 Gold tables; the catalog needs the Silver dims — keep them from a `build_database.py` run or extend the sync. |
+| First chat answer is slow (~1 min) | Normal — Ollama loading the model. It stays warm for 30 min after. |
+
+Run `python check_data_sources.py` before any demo to confirm every live API is up.
+
+---
+
+## Team
+
+| Area | Owner |
+|---|---|
+| Risk & Logistics Agent, orchestration, architecture | Sid |
+| Inventory Agent | Vishnu |
+| UI | Sai Charan |
+| Market Analysis | Gaurangi |
+| Demand Forecasting | Tania |
+
+---
+
+## Tech stack
+
+Python · SQLite · DuckDB · LangGraph · Streamlit · Altair · Ollama (`qwen2.5:7b-instruct`)
+· HubSpot CRM · Databricks + Delta Lake · n8n · NWS / OSRM / Open-Meteo / EIA / US Census APIs
