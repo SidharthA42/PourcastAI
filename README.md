@@ -164,7 +164,7 @@ pourcast-ai/
 
 ## The 3.4 GB question
 
-Keep the whole Kaggle file locally, but you never load it all. **DuckDB** reads the CSV
+Keep the whole Kaggle file locally, but never load it all. **DuckDB** reads the CSV
 directly with SQL and materialises only the busiest **25 items × 20 stores over the
 last 12 months** into `pourcast.db`. Resize via `TOP_N_ITEMS` / `TOP_M_STORES` /
 `MONTHS_BACK` at the top of `build_database.py`. **Never commit the CSV or the DB** —
@@ -172,7 +172,7 @@ last 12 months** into `pourcast.db`. Resize via `TOP_N_ITEMS` / `TOP_M_STORES` /
 
 ---
 
-## Real vs simulated (state this in the report)
+## Real vs simulated 
 
 | Real | Simulated (derived from real sales) |
 |---|---|
@@ -255,8 +255,7 @@ Run `python check_data_sources.py` before any demo to confirm every live API is 
 | Risk & Logistics Agent, orchestration, architecture | Sid |
 | Inventory Agent | Vishnu |
 | UI | Sai Charan |
-| Market Analysis | Gaurangi |
-| Demand Forecasting | Tania |
+| Databricks & architecture | Gaurangi & Tania|
 
 ---
 
