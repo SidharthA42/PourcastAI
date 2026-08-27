@@ -22,6 +22,7 @@ Run AFTER build_database.py:
 import math
 import random
 import sqlite3
+import os
 import statistics
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -29,7 +30,30 @@ from datetime import datetime, timedelta
 HERE    = Path(__file__).resolve().parent
 DB_PATH = HERE / "data" / "pourcast.db"
 
-RANDOM_SEED = 42
+RANDOM_SEED = 42   # default: reproducible, so teammates regenerating the DB match.
+
+
+def resolve_seed():
+    """Pick the RNG seed.
+
+    Default (env unset)          -> 42, so `python simulate.py` by hand always
+                                    produces the SAME data across machines.
+    SIMULATE_SEED=daily          -> seed derived from today's date, so a nightly
+                                    scheduled run produces GENUINELY DIFFERENT
+                                    inventory/shipments each night (not the same
+                                    rows with the dates bumped).
+    SIMULATE_SEED=<integer>      -> use that exact seed.
+    """
+    val = os.getenv("SIMULATE_SEED", "").strip().lower()
+    if val in ("", "42"):
+        return RANDOM_SEED
+    if val == "daily":
+        from datetime import date
+        return int(date.today().strftime("%Y%m%d"))   # e.g. 20260827
+    try:
+        return int(val)
+    except ValueError:
+        return RANDOM_SEED
 
 # Opening stock and order size are still simple day-count rules - those are
 # starting/refill conventions, not the "should we reorder" decision itself.
@@ -70,7 +94,10 @@ def daterange(start, end):
 
 
 def main():
-    random.seed(RANDOM_SEED)
+    seed = resolve_seed()
+    random.seed(seed)
+    print(f"[simulate] RNG seed = {seed} "
+          f"({'daily/varied' if seed != RANDOM_SEED else 'default/reproducible'})")
     con = sqlite3.connect(DB_PATH)
     con.row_factory = sqlite3.Row
 
